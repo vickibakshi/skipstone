@@ -1,8 +1,11 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>Skip Stone</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito+Sans:wght@600;800&display=swap">
+<script src="https://www.youtube.com/game_api/v1"></script>
 <style>
 /* Concept: full-bleed 3D lake. HUD floats over the scene: hearts (left), distance and lake progress (centre), sound (right). Story cards sit at the bottom. */
 :root {
@@ -26,6 +29,7 @@ html, body {
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
 }
 #c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; background: var(--night); }
@@ -186,6 +190,8 @@ html, body {
   .cta { animation: none; }
 }
 </style>
+</head>
+<body>
 
 <canvas id="c" aria-label="Skip Stone game scene"></canvas>
 <div class="hud">
@@ -208,51 +214,63 @@ html, body {
   <div id="panel" class="panel"></div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="vendor/three.min.js"></script>
+<script>
+  // Local dev only: the Playables build ships vendor/three.min.js, so this never fires there.
+  if (typeof THREE === 'undefined') document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"><\/script>');
+</script>
+<script src="rules.js"></script>
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
   var panel = $('panel');
-  if (typeof THREE === 'undefined') {
+  if (typeof THREE === 'undefined' || typeof SkipRules === 'undefined') {
     panel.innerHTML = '<h1>Skip Stone</h1><p>The 3D engine did not load. Check your connection and reload.</p>';
     return;
   }
+  var R = SkipRules;
+  var yt = window.ytgame && ytgame.IN_PLAYABLES_ENV ? ytgame : null;
 
   /* ---------- story and lakes ---------- */
   var PROLOGUE = 'Pip is a small grey pebble from the bottom of a mountain stream. One night an old frog tells Pip: skip across the five lakes to reach the Moon Shore, where brave stones become stars. Pip decides to try.';
   var ENDING = 'Pip slides onto the silver sand of the Moon Shore. The Moon smiles, and a soft light lifts Pip into the sky, where the other stones are waiting. Every night after, one small star blinks down at the lakes. It is the one that never gave up skipping.';
+  // Gameplay numbers live in rules.js (LEVEL_RULES); these are the look and story of each lake.
   var LEVELS = [
-    { name: 'Dawn Pond', goal: 150, v0: 8.0, ramp: 1.2, rock: 0.25, cd: 4, cluster: 0, fly: 0.15, win: 0.11, types: ['rock'], rockH: 0.55, rockR: 0.42, logLen: 1.6, whirl: [5.6, 1.1],
+    { name: 'Dawn Pond',
       intro: 'Tap when the two rings meet. A few small rocks to hop over.',
       outro: 'The old frog croaks from a lily pad: "Not bad for a pebble."',
       sky: [[0.09, 0.14, 0.34], [0.52, 0.30, 0.55], [1.0, 0.70, 0.54]],
       water: [[0.05, 0.22, 0.29], [0.12, 0.36, 0.45], [1.0, 0.70, 0.54]], glit: [1.0, 0.85, 0.65],
       sun: 0xffe6c9, glow: 0xffc896, mtn: [0x6a4a86, 0x3a3668], stars: false },
-    { name: 'Reed Creek', goal: 250, v0: 9.0, ramp: 1.4, rock: 0.35, cd: 3, cluster: 0, fly: 0.2, win: 0.095, types: ['rock', 'log'], rockH: 0.6, rockR: 0.46, logLen: 1.6, whirl: [5.6, 1.1],
+    { name: 'Reed Creek',
       intro: 'New: floating logs. Hop high to clear them.',
       outro: 'A heron watches Pip skip past. "Keep going," she says.',
       sky: [[0.20, 0.35, 0.62], [0.90, 0.62, 0.48], [1.0, 0.85, 0.55]],
       water: [[0.05, 0.28, 0.30], [0.15, 0.45, 0.45], [1.0, 0.85, 0.55]], glit: [1.0, 0.92, 0.6],
       sun: 0xfff0c0, glow: 0xffd88a, mtn: [0x7a6a8a, 0x44486e], stars: false },
-    { name: 'Lily Marsh', goal: 350, v0: 10.0, ramp: 1.6, rock: 0.45, cd: 3, cluster: 0, fly: 0.4, win: 0.085, types: ['rock', 'log', 'whirl'], rockH: 0.65, rockR: 0.5, logLen: 2.0, whirl: [5.6, 1.1],
+    { name: 'Lily Marsh',
       intro: 'New: whirlpools. Do not land in them, and the water gets faster.',
       outro: 'The fireflies dance around Pip. "We will light your way," they whisper.',
       sky: [[0.12, 0.22, 0.30], [0.35, 0.50, 0.45], [0.95, 0.80, 0.50]],
       water: [[0.04, 0.22, 0.20], [0.10, 0.36, 0.30], [0.95, 0.80, 0.50]], glit: [0.95, 0.9, 0.55],
       sun: 0xf6e6a8, glow: 0xe8d070, mtn: [0x3f6a5e, 0x24433f], stars: false },
-    { name: 'Misty Mirror', goal: 450, v0: 11, ramp: 1.8, rock: 0.5, cd: 2, cluster: 0.3, fly: 0.3, win: 0.07, types: ['rock', 'log', 'whirl'], rockH: 0.7, rockR: 0.54, logLen: 2.3, whirl: [6.0, 1.4],
-      intro: 'Bigger rocks, longer logs, and obstacles that come in pairs.',
+    { name: 'Misty Mirror',
+      intro: 'New: low bridges. Duck under with a softer, non-perfect hop. Now and then, obstacles come in pairs.',
       outro: 'Pip sees its own reflection, a little brighter than before.',
       sky: [[0.18, 0.16, 0.38], [0.55, 0.45, 0.70], [0.85, 0.80, 0.95]],
       water: [[0.08, 0.14, 0.30], [0.22, 0.30, 0.50], [0.85, 0.80, 0.95]], glit: [0.9, 0.85, 1.0],
       sun: 0xf0e8ff, glow: 0xc8b8f0, mtn: [0x5a4a86, 0x2e2a5e], stars: false },
-    { name: 'Moon Lake', goal: 550, v0: 12, ramp: 2.0, rock: 0.55, cd: 2, cluster: 0.4, fly: 0.3, win: 0.06, types: ['rock', 'log', 'whirl'], rockH: 0.75, rockR: 0.58, logLen: 2.6, whirl: [6.3, 1.7],
-      intro: 'Everything at top speed, with more pairs. The Moon Shore glows ahead.',
+    { name: 'Moon Lake',
+      intro: 'New: obstacles often come in pairs, and everything moves at top speed. The Moon Shore glows ahead.',
       outro: '',
       sky: [[0.02, 0.03, 0.10], [0.08, 0.10, 0.28], [0.25, 0.30, 0.55]],
       water: [[0.01, 0.04, 0.12], [0.05, 0.12, 0.28], [0.25, 0.30, 0.55]], glit: [0.7, 0.8, 1.0],
       sun: 0xe6eeff, glow: 0x9fb4ff, mtn: [0x1c2150, 0x0e1236], stars: true }
-  ];
+  ].map(function (v, i) {
+    var r = R.LEVEL_RULES[i];
+    for (var k in r) v[k] = r[k];
+    return v;
+  });
 
   /* ---------- renderer, scene, camera ---------- */
   var canvas = $('c');
@@ -516,19 +534,33 @@ html, body {
     g.add(glow);
     g.position.set(0, yy, -dd);
     scene.add(g);
-    flies.push({ m: g, d: dd, y: yy, phase: Math.random() * 6 });
+    var f = { m: g, d: dd, y: yy, phase: Math.random() * 6 };
+    flies.push(f);
+    return f;
+  }
+  // Keeps a new obstacle clear of the others and of the landing it is placed after, so pairs never overlap.
+  function spanIsFree(lo, hi, land) {
+    if (lo < land + 1.0 && hi > land - 1.0) return false;
+    for (var i = 0; i < obs.length; i++) {
+      var o = obs[i];
+      if (o.passed || o.hit) continue;
+      if (lo < o.d + o.half + 1.5 && hi > o.d - o.half - 1.5) return false;
+    }
+    return true;
   }
   function spawnObstacle(kind, land) {
-    var rd = land + 5.0 + (Math.random() - 0.5) * 0.5, m;
+    var pl = R.placement(kind, curLevel), sz = R.size(kind, curLevel, Math.random());
+    var rd = land + pl.offset + (Math.random() * 2 - 1) * pl.jitter, m, o;
+    if (!spanIsFree(rd - sz.half, rd + sz.half, land)) return false;
     if (kind === 'rock') {
-      var lvR = LV(), r = lvR.rockR + Math.random() * 0.1, hy = lvR.rockH + 0.1;
+      var lvR = LV(), r = sz.r, hy = lvR.rockH + 0.1;
       m = new THREE.Mesh(rockGeo, rockMat);
       m.scale.set(r * 1.15, hy, r * 1.15);
-      m.position.set((Math.random() - 0.5) * 0.3, lvR.rockH - hy * 0.9, -rd);
+      m.position.set((Math.random() * 2 - 1) * R.ROCK_X, lvR.rockH - hy * 0.9, -rd);
       m.rotation.y = Math.random() * 6;
       scene.add(m);
-      obs.push({ kind: 'rock', m: m, d: rd, x: m.position.x, half: r * 1.15 * 0.9, h: lvR.rockH, hit: false, passed: false });
-      spawnFly(rd, 1.3);
+      o = { kind: 'rock', m: m, d: rd, x: m.position.x, half: sz.half, h: sz.h, hit: false, passed: false };
+      o.fly = spawnFly(rd, 1.3);
     } else if (kind === 'log') {
       m = new THREE.Group();
       var body = new THREE.Mesh(logGeo, logMat);
@@ -550,20 +582,18 @@ html, body {
       m.rotation.y = (Math.random() - 0.5) * 0.15;
       m.scale.z = LV().logLen / 3.4;
       scene.add(m);
-      obs.push({ kind: 'log', m: m, d: rd, x: 0, half: LV().logLen / 2, h: 0.5, hit: false, passed: false });
-      spawnFly(rd, 1.1);
+      o = { kind: 'log', m: m, d: rd, x: 0, half: sz.half, h: sz.h, hit: false, passed: false };
+      o.fly = spawnFly(rd, 1.1);
     } else if (kind === 'whirl') {
-      var wp = LV().whirl;
-      rd = land + wp[0] + (Math.random() - 0.5) * 0.3;
       m = new THREE.Mesh(whirlGeo, whirlMat);
       m.rotation.x = -Math.PI / 2;
-      m.scale.setScalar(wp[1] / 1.7);
+      m.scale.setScalar(sz.half / 1.7);
       m.position.set(0, 0.035, -rd);
       scene.add(m);
-      obs.push({ kind: 'whirl', m: m, d: rd, x: 0, half: wp[1], h: 0, hit: false, passed: false });
-      spawnFly(land + 9.8, 0.9);
+      o = { kind: 'whirl', m: m, d: rd, x: 0, half: sz.half, h: 0, hit: false, passed: false };
+      // Reward for hopping clean over the whirlpool: just past its far edge.
+      o.fly = spawnFly(rd + sz.half + 2.8, 0.9);
     } else if (kind === 'bridge') {
-      rd = land + 4.7 + (Math.random() - 0.5) * 0.3;
       m = new THREE.Group();
       [-3.4, 3.4].forEach(function (x) {
         var p = new THREE.Mesh(bpostGeo, bwoodMat);
@@ -576,11 +606,14 @@ html, body {
       var plank = new THREE.Mesh(plankGeo, bplankMat);
       plank.position.set(0, 1.39, 0);
       m.add(plank);
-      m.position.set(0, 0, -rd);
+      // The beam's underside sits at y 1.05 in the model; lift it to the lake's bridge height.
+      m.position.set(0, sz.h - 1.05, -rd);
       scene.add(m);
-      obs.push({ kind: 'bridge', m: m, d: rd, x: 0, half: 0.4, h: 1.05, hit: false, passed: false });
-      spawnFly(rd, 0.5);
+      o = { kind: 'bridge', m: m, d: rd, x: 0, half: sz.half, h: sz.h, hit: false, passed: false };
+      o.fly = spawnFly(rd, 0.5);
     }
+    obs.push(o);
+    return true;
   }
   function spawnDecor(dd) {
     var side = Math.random() < 0.5 ? -1 : 1;
@@ -642,15 +675,47 @@ html, body {
     }
   }
 
+  /* ---------- save data: YouTube Playables when available, localStorage elsewhere ---------- */
+  var store = {
+    load: function () {
+      if (yt) {
+        return Promise.resolve().then(function () { return yt.game.loadData(); }).then(function (s) {
+          try { return s ? JSON.parse(s) : {}; } catch (e) { return {}; }
+        }, function () { return {}; });
+      }
+      var out = {};
+      try {
+        out.level = parseInt(localStorage.getItem('skipstone-level') || '0', 10);
+        out.muted = localStorage.getItem('skipstone-muted') === '1';
+      } catch (e) {}
+      return Promise.resolve(out);
+    },
+    save: function () {
+      if (yt) {
+        try { Promise.resolve(yt.game.saveData(JSON.stringify({ level: curLevel, muted: muted }))).catch(function () {}); } catch (e) {}
+        return;
+      }
+      try {
+        localStorage.setItem('skipstone-level', String(curLevel));
+        localStorage.setItem('skipstone-muted', muted ? '1' : '0');
+      } catch (e) {}
+    }
+  };
+
   /* ---------- audio ---------- */
-  var actx = null, muted = false;
+  // Sound plays only when both the in-game button and YouTube's audio setting allow it.
+  var actx = null, muted = false, ytAudio = true, paused = false;
+  if (yt) {
+    try { ytAudio = yt.system.isAudioEnabled(); } catch (e) {}
+    try { yt.system.onAudioEnabledChange(function (on) { ytAudio = !!on; }); } catch (e) {}
+  }
   var SCALE = [392, 440, 523.25, 587.33, 659.25, 783.99, 880, 987.77, 1174.66];
   function ensureAudio() {
     if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { actx = null; } }
-    if (actx && actx.state === 'suspended') { try { actx.resume(); } catch (e) {} }
+    if (actx && actx.state === 'suspended' && !paused) { try { actx.resume(); } catch (e) {} }
   }
   function tone(freq, dur, type, vol, slide) {
-    if (!actx || muted) return;
+    if (!actx || muted || !ytAudio || paused) return;
     try {
       var t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
       o.type = type || 'sine';
@@ -669,24 +734,21 @@ html, body {
     e.stopPropagation();
     muted = !muted;
     this.setAttribute('aria-pressed', muted ? 'true' : 'false');
-    try { localStorage.setItem('skipstone-muted', muted ? '1' : '0'); } catch (err) {}
+    store.save();
   });
   $('snd').addEventListener('pointerdown', function (e) { e.stopPropagation(); });
 
   /* ---------- game state ---------- */
-  var SKIM = 0.15, EARLY = 0.26, GOODW = 0.16;
+  var SKIM = R.SKIM, EARLY = R.EARLY;
   var state = 'ready', time = 0, d = 0, y = 0, camD = 0, combo = 0, hops = 0, cooldown = 0;
   var MAXLIVES = 3, lives = 3, perfects = 0, flyCount = 0, invuln = 0, finished = false, finishT = 0;
   var rushed = false, lastType = '', seen = {}, forceObs = false;
   var curLevel = 0, clearedIdx = 0, spin = 0, hop = null, crashT = 0, crashType = '', cvy = 0, cvd = 0, splashed = false;
   var overUntil = 0, endT = 0, endPanel = false, hintShown = false, decorNext = -10, lastWall = performance.now(), lastScore = -1;
-  var hintTimer = 0;
-
-  try { var sv = parseInt(localStorage.getItem('skipstone-level') || '0', 10); if (sv >= 0 && sv < LEVELS.length) curLevel = sv; } catch (e) { curLevel = 0; }
-  try { if (localStorage.getItem('skipstone-muted') === '1') { muted = true; $('snd').setAttribute('aria-pressed', 'true'); } } catch (e) {}
+  var hintTimer = 0, ready = false;
 
   function LV() { return LEVELS[curLevel]; }
-  function saveLevel() { try { localStorage.setItem('skipstone-level', String(curLevel)); } catch (e) {} }
+  function saveLevel() { store.save(); }
   function speedAt(dd) { return LV().v0 + LV().ramp * Math.min(1, dd / LV().goal); }
   function perfectWin() { return LV().win; }
 
@@ -752,6 +814,7 @@ html, body {
     if (e.target && e.target.id === 'restart') {
       e.stopPropagation();
       e.preventDefault();
+      if (paused) return;
       curLevel = 0;
       saveLevel();
       resetToLevel();
@@ -777,7 +840,7 @@ html, body {
 
   function launch(startD, L, allowRock) {
     var v = speedAt(startD);
-    hop = { startD: startD, L: L, v: v, T: L / v, H: 0.3 + (L - 4.4) * 0.2, t: 0, phase: 'air', tap: undefined, skim: 0 };
+    hop = { startD: startD, L: L, v: v, T: L / v, H: R.hopHeight(L), t: 0, phase: 'air', tap: undefined, skim: 0 };
     hops++;
     if (cooldown > 0) cooldown--;
     if (allowRock && !finished) {
@@ -786,11 +849,14 @@ html, body {
         var pool = lv.types.filter(function (t) { return t !== lastType; });
         if (!pool.length) pool = lv.types;
         var kind = pool[Math.floor(Math.random() * pool.length)];
-        lastType = kind;
-        spawnObstacle(kind, land);
-        cooldown = lv.cd;
-        forceObs = lv.cluster > 0 && Math.random() < lv.cluster;
-        if (!seen[kind]) { seen[kind] = true; showHint(HINTS[kind]); }
+        if (spawnObstacle(kind, land)) {
+          lastType = kind;
+          cooldown = lv.cd;
+          forceObs = lv.cluster > 0 && Math.random() < lv.cluster;
+          if (!seen[kind]) { seen[kind] = true; showHint(HINTS[kind]); }
+        } else {
+          forceObs = false;
+        }
       } else if (hops > 2 && Math.random() < lv.fly * 0.5) {
         spawnFly(land + 4.6, 1.2);
       }
@@ -812,19 +878,16 @@ html, body {
     setScore();
   }
 
-  function bounce(off, forceWeak) {
-    var grade, q, pw = perfectWin();
-    if (finished || (!forceWeak && off <= pw)) { grade = 'perfect'; q = 1; combo++; }
-    else if (!forceWeak && off <= pw * 1.9) { grade = 'good'; q = 0.6; combo = 0; }
-    else { grade = 'weak'; q = 0.25; combo = 0; }
+  function bounce(off) {
+    var grade = finished ? 'perfect' : R.grade(off, perfectWin());
     var wasRushed = false;
     if (rushed && !finished) {
-      if (grade !== 'weak') { grade = 'weak'; q = 0.25; combo = 0; }
+      grade = 'weak';
       rushed = false;
       wasRushed = true;
     }
-    if (grade === 'perfect') perfects++;
-    var L = 4.4 + 5.0 * q + Math.min(combo, 5) * 0.3;
+    if (grade === 'perfect') { combo++; perfects++; } else combo = 0;
+    var L = R.hopLength(R.Q[grade], combo);
     addRipple(d, grade === 'perfect' ? 0xffd166 : 0xfff3e6, grade === 'perfect' ? 3.2 : 2.2, 0.8);
     splash(d, grade === 'perfect' ? 12 : 6, grade === 'perfect' ? 2.6 : 1.6);
     if (grade === 'perfect') {
@@ -882,6 +945,21 @@ html, body {
     if (o) o.hit = true;
     if (kind === 'rock' || kind === 'log') d = Math.max(0, o.d - o.half - 0.5);
     else if (kind === 'bridge') d = Math.max(0, o.d - 0.9);
+    // Clear the restart hop and the hop after it, so one mistake never costs two hearts.
+    var clearTo = d + 6.6 + R.hopLength(R.Q.perfect, 1) + 1.5;
+    for (var i = obs.length - 1; i >= 0; i--) {
+      var ob = obs[i];
+      if (ob.passed || ob.hit || ob.d - ob.half >= clearTo) continue;
+      scene.remove(ob.m);
+      if (ob.fly) {
+        scene.remove(ob.fly.m);
+        var fi = flies.indexOf(ob.fly);
+        if (fi >= 0) flies.splice(fi, 1);
+      }
+      obs.splice(i, 1);
+    }
+    forceObs = false;
+    cooldown = Math.max(cooldown, 2);
     splash(d, 10, 2.2);
     addRipple(d, 0xfff3e6, 2.4, 0.8);
     var say = { rock: 'Ouch!', log: 'Ouch!', bridge: 'Bonk!', whirl: 'Whirlpool!', plop: 'Splash!' };
@@ -893,6 +971,8 @@ html, body {
 
   function finishLevel() {
     marker.visible = false;
+    // Score is lakes cleared, so a full run is worth 5.
+    if (yt) { try { yt.engagement.sendScore({ value: curLevel + 1 }); } catch (e) {} }
     if (curLevel < LEVELS.length - 1) {
       state = 'clear';
       clearedIdx = curLevel;
@@ -917,14 +997,17 @@ html, body {
     setPanel('over');
   }
 
-  function onTap() {
+  function onTap(evTime) {
     var now = performance.now();
-    if (state === 'ready') { startGame(); return; }
+    if (paused) return;
+    if (state === 'ready') { if (ready) startGame(); return; }
     if (state === 'over') { if (now > overUntil) startGame(); return; }
     if (state === 'clear') { if (now > overUntil) resetToLevel(); return; }
     if (state === 'ending') { if (endPanel) resetToLevel(); return; }
     if (state !== 'play' || finished) return;
-    var extra = Math.min(0.03, (now - lastWall) / 1000);
+    // hop.t was last advanced at lastWall; the tap really happened at evTime.
+    var tapAt = evTime > 0 && evTime <= now ? evTime : now;
+    var extra = Math.max(-0.05, Math.min(0.05, (tapAt - lastWall) / 1000));
     if (hop.phase === 'air') {
       var left = hop.T - (hop.t + extra);
       if (left > EARLY) {
@@ -935,20 +1018,28 @@ html, body {
         if (hop.tap === undefined || Math.abs(off) < Math.abs(hop.tap)) hop.tap = off;
       }
     } else if (hop.phase === 'skim') {
-      bounce(hop.skim, true);
+      // Late taps get the same window as early ones.
+      bounce(Math.abs(hop.skim + extra));
     }
   }
 
+  // Event timestamps share performance.now()'s clock in current browsers; older ones used epoch ms.
+  function eventTime(e) {
+    var t = e.timeStamp;
+    return t > 0 && t <= performance.now() + 1 ? t : 0;
+  }
   window.addEventListener('pointerdown', function (e) {
     if (e.target && e.target.closest && e.target.closest('#snd')) return;
     e.preventDefault();
+    if (!e.isPrimary || e.button > 0) return;
     ensureAudio();
-    onTap();
+    onTap(eventTime(e));
   }, { passive: false });
+  window.addEventListener('contextmenu', function (e) { e.preventDefault(); });
   window.addEventListener('keydown', function (e) {
     if (e.code === 'Space' || e.code === 'Enter') {
       e.preventDefault();
-      if (!e.repeat) { ensureAudio(); onTap(); }
+      if (!e.repeat) { ensureAudio(); onTap(eventTime(e)); }
     }
   });
 
@@ -965,7 +1056,7 @@ html, body {
         if (!finished && invuln <= 0) {
           for (var wi = 0; wi < obs.length; wi++) {
             var wo = obs[wi];
-            if (wo.kind === 'whirl' && !wo.hit && Math.abs(wo.d - d) < wo.half) { loseHeart('whirl', wo); return; }
+            if (wo.kind === 'whirl' && !wo.hit && R.collides('whirl', wo, wo.d - d, 0)) { loseHeart('whirl', wo); return; }
           }
         }
         if (finished) {
@@ -984,8 +1075,8 @@ html, body {
         y = 4 * h.H * s * (1 - s);
       }
     } else {
+      // The stone waits on the landing spot, so a late tap launches from the same place as an early one.
       h.skim += dt;
-      d += h.v * dt;
       y = 0;
       if (h.skim >= SKIM) { loseHeart('plop'); return; }
     }
@@ -1017,11 +1108,7 @@ html, body {
         continue;
       }
       if (invuln > 0 || Math.abs(dz) > o.half + 0.2) continue;
-      var hitIt = false;
-      if (o.kind === 'rock') hitIt = Math.sqrt(o.x * o.x + dz * dz) < o.half + 0.15 && y < o.h;
-      else if (o.kind === 'log') hitIt = Math.abs(dz) < o.half + 0.15 && y < o.h;
-      else if (o.kind === 'bridge') hitIt = Math.abs(dz) < o.half && y + 0.12 > o.h;
-      if (hitIt) { loseHeart(o.kind, o); return; }
+      if (o.kind !== 'whirl' && R.collides(o.kind, o, dz, y)) { loseHeart(o.kind, o); return; }
     }
     for (var j = flies.length - 1; j >= 0; j--) {
       var f = flies[j];
@@ -1081,10 +1168,13 @@ html, body {
     var nowW = performance.now();
     var dt = Math.min(0.05, (nowW - lastWall) / 1000);
     lastWall = nowW;
+    // Paused by YouTube: keep drawing the frozen scene, but advance nothing.
+    if (paused) dt = 0;
     time += dt;
     waterU.uTime.value = time;
 
-    if (state === 'play') stepPlay(dt);
+    if (paused) { /* frozen */ }
+    else if (state === 'play') stepPlay(dt);
     else if (state === 'crash') stepCrash(dt);
     else if (state === 'ending') stepEnding(dt);
     else if (state === 'ready' || state === 'clear') { y = 0.14 + Math.sin(time * 2) * 0.05; }
@@ -1105,14 +1195,15 @@ html, body {
     shadow.material.opacity = 0.3 * sh;
     stone.visible = !(state === 'play' && invuln > 0 && Math.floor(time * 14) % 2 === 0);
 
-    if (state === 'play' && hop && hop.phase === 'air' && !finished) {
-      var left = hop.T - hop.t;
-      var k = Math.min(left / 0.7, 1);
+    if (state === 'play' && hop && !finished) {
+      // Negative once the stone has landed and is skimming: the window runs both sides of the landing.
+      var left = hop.phase === 'air' ? hop.T - hop.t : -hop.skim;
+      var k = Math.max(0, Math.min(left / 0.7, 1));
       marker.visible = true;
       marker.position.z = -(hop.startD + hop.L);
       outerRing.scale.setScalar(0.55 + k * 1.4);
       outerMat.opacity = 0.35 + 0.55 * (1 - k);
-      var inWin = left <= perfectWin();
+      var inWin = Math.abs(left) <= perfectWin();
       innerMat.color.setHex(inWin ? 0xffd166 : 0xfff3e6);
       innerRing.scale.setScalar(inWin ? 1.15 : 1);
     } else {
@@ -1159,9 +1250,40 @@ html, body {
     water.position.set(camera.position.x, 0, camera.position.z);
 
     renderer.render(scene, camera);
+    if (!firstFrame) {
+      firstFrame = true;
+      if (yt) { try { yt.game.firstFrameReady(); } catch (e) {} }
+    }
   }
 
+  /* ---------- YouTube Playables pause / resume ---------- */
+  if (yt) {
+    try {
+      yt.system.onPause(function () {
+        paused = true;
+        if (actx) { try { actx.suspend(); } catch (e) {} }
+      });
+      yt.system.onResume(function () {
+        paused = false;
+        lastWall = performance.now();
+        if (actx) { try { actx.resume(); } catch (e) {} }
+      });
+    } catch (e) {}
+  }
+
+  // The first lake shown waits for saved progress, then tells YouTube the game is ready.
+  var firstFrame = false;
   resetToLevel();
+  panel.hidden = true;
   frame();
+  store.load().then(function (sv) {
+    if (sv.level >= 0 && sv.level < LEVELS.length) curLevel = sv.level | 0;
+    if (sv.muted) { muted = true; $('snd').setAttribute('aria-pressed', 'true'); }
+    resetToLevel();
+    ready = true;
+    if (yt) { try { yt.game.gameReady(); } catch (e) {} }
+  });
 })();
 </script>
+</body>
+</html>
