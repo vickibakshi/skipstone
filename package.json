@@ -1,0 +1,7 @@
+{
+  "name": "skipstone",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/rules.test.js"
+  }
+}
